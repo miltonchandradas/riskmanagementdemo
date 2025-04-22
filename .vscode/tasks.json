@@ -79,6 +79,21 @@
       "options": {
         "cwd": "${workspaceFolder}/"
       }
+    },
+    {
+      "label": "PreLaunchTask for Run RiskManagementDemo with Live Data",
+      "type": "process",
+      "command": "npx",
+      "args": [
+        "dev-cap-tools",
+        "gen-entrypoint"
+      ],
+      "dependsOn": [
+        "BuildMDK"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
     }
   ]
 }
