@@ -11,7 +11,7 @@ entity Risks
     impact : Integer;
     criticality : Integer;
     mitigation : Association to one Mitigations;
-    a_BusinessPartner : Association to one BusinessPartnerA2X.A_BusinessPartner;
+    bp : Association to one BusinessPartnerA2X.A_BusinessPartner;
 }
 
 entity Mitigations
