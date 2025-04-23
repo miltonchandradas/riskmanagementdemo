@@ -1,0 +1,231 @@
+_schema-version: '3.1'
+ID: RiskManagementDemo
+version: 1.0.0
+description: A simple CAP project.
+parameters:
+  deploy_mode: html5-repo
+  enable-parallel-deployments: true
+  subdomain: 4ee3b5fftrial
+build-parameters:
+  before-all:
+    - builder: custom
+      commands:
+        - rm -rf build/dist
+        - mkdir -p build/dist
+        - rm -rf build/ui-deployer
+        - mkdir -p build/ui-deployer
+    - builder: custom
+      commands:
+        - npm install --production
+        - >-
+          bash -c "cds -v | grep 'cds-dk' || npm i --production --no-save
+          @sap/cds-dk"
+        - bash -c "export PATH=$PATH:$(pwd)/node_modules/.bin"
+        - cds build --production
+  after-all:
+    - builder: custom
+      commands:
+        - npm install
+modules:
+  - name: RiskManagementDemo-riskmanagementdemo.risks
+    type: html5
+    path: app/riskmanagementdemo.risks
+    build-parameters:
+      builder: custom
+      commands:
+        - rm -rf dist-zip dist
+        - npm install
+        - >-
+          npx -p @ui5/cli@^3.0.0 ui5 build --dest dist
+          --include-task=generateCachebusterInfo
+        - mkdir dist-zip
+        - >-
+          bash -c "cd dist && npx bestzip
+          ../dist-zip/riskmanagementdemorisks.zip *"
+      _artifactName: riskmanagementdemorisks.zip
+      supported-platforms: []
+      build-result: dist-zip
+  - name: RiskManagementDemo-db-deployer
+    type: hdb
+    path: gen/db
+    parameters:
+      buildpack: nodejs_buildpack
+    build-parameters:
+      builder: npm
+      ignore:
+        - node_modules
+        - package-lock.json
+    requires:
+      - name: RiskManagementDemo-service-uaa
+      - name: RiskManagementDemo-service-db
+  - name: RiskManagementDemo-srv
+    type: nodejs
+    path: gen/srv
+    parameters:
+      memory: 256MB
+    provides:
+      - name: srv-api
+        properties:
+          srv-url: ${default-url}
+    build-parameters:
+      builder: npm
+      ignore:
+        - node_modules
+        - package-lock.json
+    requires:
+      - name: RiskManagementDemo-service-uaa
+      - name: RiskManagementDemo-service-db
+      - name: RiskManagementDemo-service-destination
+      - name: RiskManagementDemo-service-metadata
+      - name: RiskManagementDemo-service-connectivity
+      - name: RiskManagementDemo-service-logs
+  - name: RiskManagementDemo-aux-destinations
+    type: com.sap.application.content
+    parameters:
+      content:
+        subaccount:
+          existing_destinations_policy: update
+          destinations:
+            - Authentication: OAuth2UserTokenExchange
+              Name: RiskManagementDemo-service-uaa
+              ServiceInstanceName: RiskManagementDemo-uaa
+              ServiceKeyName: RiskManagementDemo-uaa-key
+              sap.cloud.service: lcap.RiskManagementDemo
+            - Authentication: OAuth2UserTokenExchange
+              Name: RiskManagementDemo-app-srv
+              TokenServiceInstanceName: RiskManagementDemo-uaa
+              TokenServiceKeyName: RiskManagementDemo-uaa-key
+              URL: ~{srv-api/srv-url}
+              sap.cloud.service: lcap.RiskManagementDemo
+            - Name: RiskManagementDemo-service-html5-apps-repo-host
+              ServiceInstanceName: RiskManagementDemo-html5-apps-repo-host
+              ServiceKeyName: RiskManagementDemo-html5-apps-repo-host-key
+              sap.cloud.service: lcap.RiskManagementDemo
+            - Authentication: OAuth2UserTokenExchange
+              Name: RiskManagementDemo-RiskManagementDemoService
+              TokenServiceInstanceName: RiskManagementDemo-uaa
+              TokenServiceKeyName: RiskManagementDemo-uaa-key
+              URL: ~{srv-api/srv-url}/service/RiskManagementDemoService
+              sap.cloud.service: lcap.RiskManagementDemo
+              sap.applicationdevelopment.actions.enabled: false
+              sap.build.usage: CAP
+              sap.processautomation.enabled: false
+              HTML5.DynamicDestination: false
+              WebIDEEnabled: false
+              MobileEnabled: false
+              AppgyverEnabled: false
+    build-parameters:
+      no-source: true
+    requires:
+      - name: RiskManagementDemo-service-uaa
+        parameters:
+          service-key:
+            name: RiskManagementDemo-uaa-key
+      - name: srv-api
+      - name: RiskManagementDemo-service-html5-apps-repo-host
+        parameters:
+          service-key:
+            name: RiskManagementDemo-html5-apps-repo-host-key
+      - name: RiskManagementDemo-service-destination
+        parameters:
+          content-target: true
+  - name: RiskManagementDemo-launchpad
+    type: html5
+    path: build/launchpad
+    build-parameters:
+      builder: custom
+      commands:
+        - npm install
+        - >-
+          npx -p @ui5/cli@^3.0.0 ui5 build --dest dist
+          --include-task=generateCachebusterInfo
+        - bash -c "cd dist && npx bestzip ../../../build/dist/launchpad.zip *"
+        - rm -rf dist
+      _artifactName: launchpad.zip
+      supported-platforms: []
+      build-result: ../../build/dist
+  - name: RiskManagementDemo-aux-ui-deployer
+    type: com.sap.application.content
+    path: build/ui-deployer
+    build-parameters:
+      build-result: resources
+      requires:
+        - name: RiskManagementDemo-riskmanagementdemo.risks
+          artifacts:
+            - riskmanagementdemorisks.zip
+          target-path: resources
+        - name: RiskManagementDemo-launchpad
+          artifacts:
+            - launchpad.zip
+          target-path: resources
+    requires:
+      - name: RiskManagementDemo-service-html5-apps-repo-host
+        parameters:
+          content-target: true
+resources:
+  - type: org.cloudfoundry.managed-service
+    name: RiskManagementDemo-service-uaa
+    parameters:
+      service: xsuaa
+      service-plan: application
+      service-name: RiskManagementDemo-uaa
+      path: xs-security.json
+      config:
+        oauth2-configuration:
+          redirect-uris:
+            - https://${subdomain}.launchpad.${default-domain}/login/*
+            - https://${subdomain}.${default-domain}/login/*
+          credential-types:
+            - binding-secret
+            - x509
+        xsappname: RiskManagementDemo-${space}
+        role-collections:
+          - description: RiskViewer
+            name: RiskManagementDemo-RiskViewer-${space}
+            role-template-references:
+              - $XSAPPNAME.RiskViewer
+          - description: RiskManager
+            name: RiskManagementDemo-RiskManager-${space}
+            role-template-references:
+              - $XSAPPNAME.RiskManager
+  - type: org.cloudfoundry.managed-service
+    name: RiskManagementDemo-service-db
+    parameters:
+      service: hana
+      service-plan: hdi-shared
+      service-name: RiskManagementDemo-db
+  - type: org.cloudfoundry.managed-service
+    name: RiskManagementDemo-service-destination
+    parameters:
+      service: destination
+      service-plan: lite
+      service-name: RiskManagementDemo-destination
+      config:
+        HTML5Runtime_enabled: true
+        version: 1.0.0
+  - type: org.cloudfoundry.user-provided-service
+    name: RiskManagementDemo-service-metadata
+    parameters:
+      service: metadata
+      service-plan: standard
+      service-name: RiskManagementDemo-metadata
+      config:
+        default-domain: ${default-domain}
+  - type: org.cloudfoundry.managed-service
+    name: RiskManagementDemo-service-connectivity
+    parameters:
+      service: connectivity
+      service-plan: lite
+      service-name: RiskManagementDemo-connectivity
+  - type: org.cloudfoundry.managed-service
+    name: RiskManagementDemo-service-logs
+    parameters:
+      service: application-logs
+      service-plan: lite
+      service-name: RiskManagementDemo-logs
+  - type: org.cloudfoundry.managed-service
+    name: RiskManagementDemo-service-html5-apps-repo-host
+    parameters:
+      service: html5-apps-repo
+      service-plan: app-host
+      service-name: RiskManagementDemo-html5-apps-repo-host
